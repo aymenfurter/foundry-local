@@ -7,6 +7,8 @@
 #include "inferencing/generative/chat/search_options.h"
 #include "inferencing/generative/genai_config.h"
 #include "inferencing/generative/genai_model_instance.h"
+#include "inferencing/generative/speech_synthesis/speech_synthesis_model_instance.h"
+#include "inferencing/model_package.h"
 #include "util/path_safety.h"
 #include "utils.h"
 
@@ -15,13 +17,12 @@
 #include <filesystem>
 #include <fmt/format.h>
 #include <thread>
+#include <type_traits>
+#include <variant>
 
 namespace fl {
 
 namespace {
-
-/// The expected config filename inside a model directory.
-constexpr const char* kGenAIConfigFileName = "genai_config.json";
 
 /// Maps model_id substrings to their required execution provider registration name.
 /// If a model_id contains one of these keys, the corresponding EP must be registered.
@@ -151,36 +152,71 @@ ModelLoadManager::LoadResult ModelLoadManager::LoadModel(std::string_view model_
     return {LoadStatus::kModelNotFound, nullptr};
   }
 
-  logger_.Log(LogLevel::Debug, fmt::format("loading model from {}", path_str));
-
-  // The caller provides the effective model path — the directory containing genai_config.json.
-  // DownloadManager and ScanLocalModels resolve this before passing it here.
-  auto config_path = (std::filesystem::path(path_str) / kGenAIConfigFileName).string();
-
-  if (!std::filesystem::exists(config_path)) {
-    FL_LOG_AND_THROW(logger_, FOUNDRY_LOCAL_ERROR_INTERNAL,
-                     "model does not contain ", kGenAIConfigFileName, ": ", id_str);
-  }
-
-  auto genai_config = GenAIConfig::LoadFromFile(config_path);
-
-  // Determine execution provider
-  auto resolved_ep = ep_override;
-
-  if (resolved_ep == ExecutionProvider::kUnknown) {
+  if (ep_override == ExecutionProvider::kUnknown) {
     FL_THROW(FOUNDRY_LOCAL_ERROR_INVALID_ARGUMENT, "unknown execution provider override");
   }
 
+  logger_.Log(LogLevel::Debug, fmt::format("loading model from {}", path_str));
+
+  // The caller provides the effective model path — the directory containing the package manifest.
+  // DownloadManager and ScanLocalModels resolve this before passing it here.
+  const auto package_kind = DetectModelPackageKind(path_str);
+  if (!package_kind) {
+    FL_LOG_AND_THROW(logger_, FOUNDRY_LOCAL_ERROR_INTERNAL,
+                     "model does not contain ", kGenAIConfigFileName, " or ", kSpeechSynthesisConfigFileName, ": ",
+                     id_str);
+  }
+
+  auto loaded = std::visit(
+      [&](auto&& config) -> std::unique_ptr<LoadedModelInstance> {
+        if constexpr (std::is_same_v<std::decay_t<decltype(config)>, GenAIConfig>) {
+          return LoadGenAIModelLocked(path_str, id_str, std::move(config), ep_override);
+        } else {
+          return LoadSpeechSynthesisModelLocked(path_str, id_str, std::move(config), ep_override);
+        }
+      },
+      LoadModelManifest(path_str, *package_kind));
+
+  auto* raw_ptr = loaded.get();
+  loaded_models_[id_str] = std::move(loaded);
+
+  logger_.Log(LogLevel::Information, fmt::format("model loaded successfully: {}", id_str));
+  return {LoadStatus::kSuccess, raw_ptr};
+}
+
+void ModelLoadManager::EnsureEpReadyLocked(const std::string& required_ep, const std::string& model_id) {
+  if (required_ep.empty()) {
+    return;
+  }
+
+  // OGA can crash or hang if a model is loaded with an unregistered EP.
+  if (!HasEP(required_ep)) {
+    FL_LOG_AND_THROW(logger_, FOUNDRY_LOCAL_ERROR_INVALID_USAGE,
+                     "model '", model_id, "' requires ", required_ep,
+                     " which is not registered. Call DownloadAndRegisterEps() first.");
+  }
+
+  if (!ep_detector_.PrepareForModelLoad(required_ep)) {
+    FL_LOG_AND_THROW(logger_, FOUNDRY_LOCAL_ERROR_INTERNAL,
+                     "failed to prepare ", required_ep, " for model loading");
+  }
+}
+
+std::unique_ptr<LoadedModelInstance> ModelLoadManager::LoadGenAIModelLocked(const std::string& path,
+                                                                            const std::string& model_id,
+                                                                            GenAIConfig config,
+                                                                            ExecutionProvider ep_override) {
+  auto resolved_ep = ep_override;
   if (resolved_ep == ExecutionProvider::kDefault) {
     // Auto-select EP for generic-gpu models: DML models are compatible with
     // CUDA and WebGPU, so try those in order when available.
-    if (id_str.find("generic-gpu") != std::string::npos) {
+    if (model_id.find("generic-gpu") != std::string::npos) {
       if (HasEP("CUDAExecutionProvider")) {
         resolved_ep = ExecutionProvider::kCUDA;
-        logger_.Log(LogLevel::Information, fmt::format("using CUDA EP for model: {}", id_str));
+        logger_.Log(LogLevel::Information, fmt::format("using CUDA EP for model: {}", model_id));
       } else if (HasEP("WebGpuExecutionProvider")) {
         resolved_ep = ExecutionProvider::kWebGPU;
-        logger_.Log(LogLevel::Information, fmt::format("using WebGPU EP for model: {}", id_str));
+        logger_.Log(LogLevel::Information, fmt::format("using WebGPU EP for model: {}", model_id));
       }
     }
   }
@@ -191,35 +227,29 @@ ModelLoadManager::LoadResult ModelLoadManager::LoadModel(std::string_view model_
   } else if (resolved_ep != ExecutionProvider::kDefault) {
     required_ep = EPUtils::EPtoRegistrationName(resolved_ep);
   } else {
-    const auto config_provider = genai_config.DefaultProvider();
-    required_ep = config_provider.empty() ? std::string(RequiredEpForModelId(id_str))
+    const auto config_provider = config.DefaultProvider();
+    required_ep = config_provider.empty() ? std::string(RequiredEpForModelId(model_id))
                                           : RequiredEpForConfigProvider(config_provider);
   }
 
-  // OGA can crash or hang if a model is loaded with an unregistered EP.
-  if (!required_ep.empty() && !HasEP(std::string(required_ep))) {
-    FL_LOG_AND_THROW(logger_, FOUNDRY_LOCAL_ERROR_INVALID_USAGE,
-                     "model '", id_str, "' requires ", required_ep,
-                     " which is not registered. Call DownloadAndRegisterEps() first.");
-  }
-
-  if (!required_ep.empty() && !ep_detector_.PrepareForModelLoad(required_ep)) {
-    FL_LOG_AND_THROW(logger_, FOUNDRY_LOCAL_ERROR_INTERNAL,
-                     "failed to prepare ", required_ep, " for model loading");
-  }
+  EnsureEpReadyLocked(required_ep, model_id);
 
   // std::make_unique cannot access the private constructor; using new directly is intentional.
-  auto loaded = std::unique_ptr<GenAIModelInstance>(new GenAIModelInstance(id_str,
-                                                                           path_str,
-                                                                           std::move(genai_config),
-                                                                           resolved_ep,
-                                                                           logger_));
+  return std::unique_ptr<LoadedModelInstance>(
+      new GenAIModelInstance(model_id, path, std::move(config), resolved_ep, logger_));
+}
 
-  auto* raw_ptr = loaded.get();
-  loaded_models_[id_str] = std::move(loaded);
+std::unique_ptr<LoadedModelInstance> ModelLoadManager::LoadSpeechSynthesisModelLocked(const std::string& path,
+                                                                                    const std::string& model_id,
+                                                                                    SpeechSynthesisConfig config,
+                                                                                    ExecutionProvider ep_override) {
+  // The plain ORT session uses the requested EP only; the default is CPU.
+  const bool needs_ep = ep_override != ExecutionProvider::kDefault && ep_override != ExecutionProvider::kCPU;
+  EnsureEpReadyLocked(needs_ep ? std::string(EPUtils::EPtoRegistrationName(ep_override)) : std::string{}, model_id);
 
-  logger_.Log(LogLevel::Information, fmt::format("model loaded successfully: {}", id_str));
-  return {LoadStatus::kSuccess, raw_ptr};
+  // std::make_unique cannot access the private constructor; using new directly is intentional.
+  return std::unique_ptr<LoadedModelInstance>(
+      new SpeechSynthesisModelInstance(model_id, path, std::move(config), ep_override, logger_));
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +293,7 @@ bool ModelLoadManager::UnloadModel(std::string_view model_id, const std::string*
     return false;
   }
 
-  // Refuse to unload while sessions hold the instance — the OGA objects must outlive
+  // Refuse to unload while sessions hold the instance — the runtime objects must outlive
   // every session that referenced them. Asking to unload an in-use model is a caller
   // contract violation, not a recoverable state.
   auto live_sessions = it->second->SessionRefCount();
@@ -275,7 +305,7 @@ bool ModelLoadManager::UnloadModel(std::string_view model_id, const std::string*
 
   logger_.Log(LogLevel::Information, fmt::format("unloading model: {}", id_str));
 
-  // Erasing destroys the GenAIModelInstance, which destroys OGA objects in reverse order.
+  // Erasing destroys the instance, which destroys its runtime objects in reverse order.
   loaded_models_.erase(it);
   return true;
 }
@@ -285,10 +315,10 @@ void ModelLoadManager::RejectNewLoads() {
 }
 
 void ModelLoadManager::UnloadAll(std::chrono::milliseconds timeout) {
-  // Snapshot ids+pointers under the lock; the GenAIModelInstance pointers stay valid
+  // Snapshot ids+pointers under the lock; the instance pointers stay valid
   // because (a) only this method or UnloadModel can erase entries, and (b) we serialize
   // the per-id erase below.
-  std::vector<std::pair<std::string, GenAIModelInstance*>> snapshot;
+  std::vector<std::pair<std::string, LoadedModelInstance*>> snapshot;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot.reserve(loaded_models_.size());
@@ -343,22 +373,32 @@ void ModelLoadManager::UnloadAll(std::chrono::milliseconds timeout) {
 // ---------------------------------------------------------------------------
 
 GenAIModelInstance* ModelLoadManager::GetLoadedModel(std::string_view model_id) {
-  return GetLoadedModel(model_id, static_cast<const std::string*>(nullptr));
+  auto* instance = GetLoadedInstance(model_id, static_cast<const std::string*>(nullptr));
+  return instance ? instance->As<GenAIModelInstance>() : nullptr;
 }
 
 GenAIModelInstance* ModelLoadManager::GetLoadedModel(std::string_view model_id, std::string_view model_path) {
-  const auto normalized_model_path = NormalizeModelPath(model_path);
-  return GetLoadedModel(model_id, &normalized_model_path);
+  auto* instance = GetLoadedInstance(model_id, model_path);
+  return instance ? instance->As<GenAIModelInstance>() : nullptr;
 }
 
-GenAIModelInstance* ModelLoadManager::GetLoadedModel(std::string_view model_id,
-                                                     const std::string* normalized_model_path) {
+LoadedModelInstance* ModelLoadManager::GetLoadedInstance(std::string_view model_id, std::string_view model_path) {
+  const auto normalized_model_path = NormalizeModelPath(model_path);
+  return GetLoadedInstance(model_id, &normalized_model_path);
+}
+
+bool ModelLoadManager::IsModelLoaded(std::string_view model_id, std::string_view model_path) {
+  return GetLoadedInstance(model_id, model_path) != nullptr;
+}
+
+LoadedModelInstance* ModelLoadManager::GetLoadedInstance(std::string_view model_id,
+                                                         const std::string* normalized_model_path) {
   std::lock_guard<std::mutex> lock(mutex_);
   return FindLoadedModelLocked(model_id, normalized_model_path);
 }
 
-GenAIModelInstance* ModelLoadManager::FindLoadedModelLocked(std::string_view model_id,
-                                                            const std::string* normalized_model_path) {
+LoadedModelInstance* ModelLoadManager::FindLoadedModelLocked(std::string_view model_id,
+                                                             const std::string* normalized_model_path) {
   std::string id_str(model_id);
   auto it = loaded_models_.find(id_str);
   if (it != loaded_models_.end() &&
@@ -373,22 +413,28 @@ std::optional<ModelLoadManager::LoadedModelState> ModelLoadManager::GetLoadedMod
     std::string_view model_id, std::string_view model_path) {
   const auto normalized_model_path = NormalizeModelPath(model_path);
   std::lock_guard<std::mutex> lock(mutex_);
-  auto* loaded = FindLoadedModelLocked(model_id, &normalized_model_path);
-  if (!loaded) {
+  auto* instance = FindLoadedModelLocked(model_id, &normalized_model_path);
+  if (!instance) {
     return std::nullopt;
   }
 
-  LoadedModelState state{
-      .config = loaded->GetGenAIConfig(), .model_path = loaded->ModelPath(), .context_length = std::nullopt};
-  if (state.config.GetChatBackendKind() == ChatBackendKind::kEngine) {
+  auto* loaded = instance->As<GenAIModelInstance>();
+  LoadedModelState state{.config = std::nullopt, .model_path = instance->ModelPath(), .context_length = std::nullopt};
+  if (!loaded) {
+    return state;
+  }
+
+  state.config = loaded->GetGenAIConfig();
+  const auto& config = *state.config;
+  if (config.GetChatBackendKind() == ChatBackendKind::kEngine) {
     // Model construction waits for Engine capability initialization; this cached limit is immutable afterward.
     const auto* engine = loaded->GetChatEngine();
     if (engine && engine->MaxRequestLength() > 0) {
       state.context_length = engine->MaxRequestLength();
     }
-  } else if ((state.config.model && state.config.model->context_length > 0) ||
-             (state.config.search && state.config.search->max_length > 0)) {
-    state.context_length = static_cast<uint64_t>(GetModelMaxContextLength(state.config));
+  } else if ((config.model && config.model->context_length > 0) ||
+             (config.search && config.search->max_length > 0)) {
+    state.context_length = static_cast<uint64_t>(GetModelMaxContextLength(config));
   }
 
   return state;

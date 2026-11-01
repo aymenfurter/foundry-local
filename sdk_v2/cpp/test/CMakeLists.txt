@@ -116,6 +116,7 @@ add_executable(foundry_local_tests
     internal_api/execution_provider_test.cc
     internal_api/file_lock_test.cc
     internal_api/file_uri_test.cc
+    internal_api/file_utils_test.cc
     internal_api/file_writer_test.cc
     internal_api/genai_config_test.cc
     internal_api/genai_model_instance_test.cc
@@ -145,6 +146,8 @@ add_executable(foundry_local_tests
     internal_api/scope_guard_test.cc
     internal_api/session_manager_test.cc
     internal_api/sha256_test.cc
+    internal_api/speech_synthesis/speech_synthesis_test.cc
+    internal_api/speech_synthesis/speech_text_test.cc
     internal_api/region_fallback_test.cc
     internal_api/sse_stream_body_test.cc
     internal_api/azure_catalog_test.cc
@@ -165,6 +168,7 @@ add_executable(foundry_local_tests
     internal_api/toolcalling/tool_definitions_test.cc
     internal_api/toolcalling/tool_registry_test.cc
     internal_api/toolcalling/grammar_test.cc
+    internal_api/utf8_test.cc
     internal_api/utils_test.cc
     internal_api/web_service_test.cc
     internal_api/winml_provider_allowlist_test.cc

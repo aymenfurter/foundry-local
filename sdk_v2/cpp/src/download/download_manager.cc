@@ -5,6 +5,7 @@
 #include "download/inference_model_writer.h"
 #include "exception.h"
 #include "inferencing/model_load_manager.h"
+#include "inferencing/model_package.h"
 #include "log_level.h"
 #include "logger.h"
 #include "telemetry/download_tracker.h"
@@ -30,7 +31,6 @@ namespace fl {
 namespace {
 
 const char* kDownloadSignalFileName = "download.tmp";
-const char* kGenAIConfigFileName = "genai_config.json";
 const char* kInferenceModelFileName = "inference_model.json";
 const char* kDefaultRegistryRegion = "centralus";
 
@@ -137,12 +137,11 @@ bool HasInferenceModelJson(const std::string& model_path) {
   return false;
 }
 
-/// Resolve the effective model path — the directory containing genai_config.json.
-/// For single-variant models this is model_path itself.
-/// For multi-variant models it's the first subdirectory containing genai_config.json.
+/// Resolve the effective model path — the directory containing the package manifest (genai_config.json or
+/// tts_config.json). For single-variant models this is model_path itself.
+/// For multi-variant models it's the first subdirectory containing a manifest.
 std::string ResolveEffectiveModelPath(const std::string& model_path) {
-  auto root_config = std::filesystem::path(model_path) / kGenAIConfigFileName;
-  if (std::filesystem::exists(root_config)) {
+  if (IsModelPackageDirectory(model_path)) {
     return model_path;
   }
 
@@ -153,15 +152,12 @@ std::string ResolveEffectiveModelPath(const std::string& model_path) {
   }
 
   for (const auto& entry : it) {
-    if (entry.is_directory(ec)) {
-      auto sub_config = entry.path() / kGenAIConfigFileName;
-      if (std::filesystem::exists(sub_config)) {
-        return entry.path().string();
-      }
+    if (entry.is_directory(ec) && IsModelPackageDirectory(entry.path())) {
+      return entry.path().string();
     }
   }
 
-  // No genai_config.json found — return root
+  // No manifest found — return root
   return model_path;
 }
 

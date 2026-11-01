@@ -143,7 +143,7 @@ class ChatTemplateTest : public ::testing::Test {
     ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess)
         << "Failed to load test model from: " << model_path;
 
-    model_ = result.model;
+    model_ = result.As<fl::GenAIModelInstance>();
   }
 
   static void TearDownTestSuite() {
@@ -194,7 +194,7 @@ class ChatTemplateKwargsTest : public ::testing::Test {
 
     const auto result = load_manager_.LoadModel(model_dir_.string(), "chat-template-kwargs");
     ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess);
-    model_ = result.model;
+    model_ = result.As<fl::GenAIModelInstance>();
   }
 
   void TearDown() override {
@@ -274,7 +274,7 @@ TEST(CanonicalToolPromptEncodingTest, KeepsMessageSchemaAndHistoricalArgumentDat
   ModelLoadManager manager(detector, logger);
   const auto loaded = manager.LoadModel(model_dir.string(), "literal-prompt");
   ASSERT_EQ(loaded.status, ModelLoadManager::LoadStatus::kSuccess);
-  auto& model = *loaded.model;
+  auto& model = *loaded.As<fl::GenAIModelInstance>();
   ToolCallContext context;
   const std::string eos = "<eos>";
   const std::string bos = "<bos>";

@@ -1038,7 +1038,7 @@ TEST_F(ModelCacheRemovalTest, RejectsLoadedSiblingRevisionForCachedAndUncachedHa
       EXPECT_TRUE(fs::exists(loaded_path / "genai_config.json"));
       EXPECT_EQ(ReadFile(deletion_root / "v3" / "weights.onnx"), "preserve");
       EXPECT_EQ(ReadFile(deletion_root / ".download.progress"), "42");
-      EXPECT_EQ(services_.model_load_manager.GetLoadedModel(info_.model_id), loaded.model);
+      EXPECT_EQ(services_.model_load_manager.GetLoadedModel(info_.model_id), loaded.As<fl::GenAIModelInstance>());
       ASSERT_TRUE(services_.model_load_manager.UnloadModel(info_.model_id));
       EXPECT_NO_THROW(model.RemoveFromCache());
       EXPECT_TRUE(fs::is_empty(deletion_root));
@@ -1059,7 +1059,7 @@ TEST_F(ModelCacheRemovalTest, RejectsLoadedFilesWithDifferentIdAndCorruptMetadat
 
   EXPECT_TRUE(fs::exists(loaded_path / "genai_config.json"));
   EXPECT_EQ(ReadFile(loaded_path / "inference_model.json"), "corrupt metadata");
-  EXPECT_EQ(services_.model_load_manager.GetLoadedModel("other-model:1"), loaded.model);
+  EXPECT_EQ(services_.model_load_manager.GetLoadedModel("other-model:1"), loaded.As<fl::GenAIModelInstance>());
   ASSERT_TRUE(services_.model_load_manager.UnloadModel("other-model:1"));
   EXPECT_NO_THROW(model.RemoveFromCache());
 }
@@ -1077,7 +1077,7 @@ TEST_F(ModelCacheRemovalTest, AllowsRemovalWhenSameIdIsLoadedOutsideDeletionRoot
 
   EXPECT_FALSE(model.IsCached());
   EXPECT_TRUE(fs::is_empty(root_));
-  EXPECT_EQ(services_.model_load_manager.GetLoadedModel(info_.model_id), loaded.model);
+  EXPECT_EQ(services_.model_load_manager.GetLoadedModel(info_.model_id), loaded.As<fl::GenAIModelInstance>());
   EXPECT_TRUE(fs::exists(loaded_path / "genai_config.json"));
 }
 

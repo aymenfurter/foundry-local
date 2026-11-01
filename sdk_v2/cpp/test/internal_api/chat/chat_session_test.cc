@@ -1404,7 +1404,7 @@ class ChatSessionTest : public ::testing::Test {
     ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess)
         << "Failed to load test model from: " << model_path;
 
-    model_ = result.model;
+    model_ = result.As<fl::GenAIModelInstance>();
   }
 
   static void TearDownTestSuite() {
@@ -1488,7 +1488,7 @@ class QwenNativeProductionIntegrationTest : public ::testing::Test {
     const auto result = load_manager_->LoadModel(
         model_directory_.string(), kModelId, ExecutionProvider::kCPU);
     ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess);
-    model_ = result.model;
+    model_ = result.As<fl::GenAIModelInstance>();
     ASSERT_NE(model_, nullptr);
     ASSERT_EQ(model_->ModelType(), "qwen3_5_text");
     ASSERT_TRUE(model_->HasPositionalToolResults());
@@ -1538,7 +1538,7 @@ class QwenNativeProductionIntegrationTest : public ::testing::Test {
     const auto engine_result = load_manager_->LoadModel(
         engine_model_directory_.string(), kEngineModelId, ExecutionProvider::kCPU);
     ASSERT_EQ(engine_result.status, ModelLoadManager::LoadStatus::kSuccess);
-    engine_model_ = engine_result.model;
+    engine_model_ = engine_result.As<fl::GenAIModelInstance>();
     ASSERT_NE(engine_model_, nullptr);
     ASSERT_EQ(engine_model_->GetGenAIConfig().GetChatBackendKind(), ChatBackendKind::kEngine);
     const auto& tags = engine_model_->GetTagInfo();

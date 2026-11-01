@@ -355,7 +355,7 @@ class ModelLoadManagerUnloadTest : public ::testing::Test {
     auto result = mgr_->LoadModel(model_path_, fl::test::kTestChatModelAlias);
     ASSERT_EQ(result.status, fl::ModelLoadManager::LoadStatus::kSuccess)
         << "Failed to load test model from: " << model_path_;
-    instance_ = result.model;
+    instance_ = result.As<fl::GenAIModelInstance>();
   }
 
   std::string model_path_;
@@ -400,7 +400,7 @@ TEST_F(ModelLoadManagerUnloadTest, SameIdRequiresSameCanonicalPathForLoadLookupA
 
   const auto idempotent = mgr_->LoadModel(equivalent_path.string(), fl::test::kTestChatModelAlias);
   EXPECT_EQ(idempotent.status, fl::ModelLoadManager::LoadStatus::kModelAlreadyLoaded);
-  EXPECT_EQ(idempotent.model, instance_);
+  EXPECT_EQ(idempotent.As<fl::GenAIModelInstance>(), instance_);
 
   try {
     mgr_->LoadModel(different_path.string(), fl::test::kTestChatModelAlias);
@@ -428,11 +428,11 @@ TEST(ModelLoadManagerTest, LoadedConfigSnapshotRequiresMatchingIdAndPathAndSurvi
   const auto equivalent_path = model_path / ".";
   const auto snapshot = manager.GetLoadedModelState("snapshot-model:1", equivalent_path.string());
   ASSERT_TRUE(snapshot.has_value());
-  ASSERT_TRUE(snapshot->config.model.has_value());
-  ASSERT_TRUE(snapshot->config.search.has_value());
-  EXPECT_EQ(snapshot->config.model->context_length, 1024);
-  EXPECT_EQ(snapshot->config.search->max_length, 128);
-  EXPECT_EQ(snapshot->config.GetChatBackendKind(), fl::ChatBackendKind::kEngine);
+  ASSERT_TRUE(snapshot->config->model.has_value());
+  ASSERT_TRUE(snapshot->config->search.has_value());
+  EXPECT_EQ(snapshot->config->model->context_length, 1024);
+  EXPECT_EQ(snapshot->config->search->max_length, 128);
+  EXPECT_EQ(snapshot->config->GetChatBackendKind(), fl::ChatBackendKind::kEngine);
   ASSERT_TRUE(snapshot->context_length.has_value());
   EXPECT_EQ(*snapshot->context_length, 1024u);
   EXPECT_EQ(snapshot->model_path, fl::NormalizeModelPath(model_path.string()));
@@ -448,8 +448,8 @@ TEST(ModelLoadManagerTest, LoadedConfigSnapshotRequiresMatchingIdAndPathAndSurvi
 
   EXPECT_TRUE(manager.UnloadModel("snapshot-model:1"));
   EXPECT_FALSE(manager.GetLoadedModelState("snapshot-model:1", model_path.string()).has_value());
-  EXPECT_EQ(snapshot->config.model->context_length, 1024);
-  EXPECT_EQ(snapshot->config.search->max_length, 128);
+  EXPECT_EQ(snapshot->config->model->context_length, 1024);
+  EXPECT_EQ(snapshot->config->search->max_length, 128);
   EXPECT_EQ(*snapshot->context_length, 1024u);
   EXPECT_EQ(snapshot->model_path, fl::NormalizeModelPath(model_path.string()));
 }

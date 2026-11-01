@@ -262,7 +262,7 @@ class AudioSessionTest : public ::testing::Test {
     ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess)
         << "Failed to load stub test model from: " << model_path;
 
-    model_ = result.model;
+    model_ = result.As<fl::GenAIModelInstance>();
   }
 
   static void TearDownTestSuite() {
@@ -314,7 +314,7 @@ class AudioSessionInferenceTest : public ::testing::Test {
     ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess)
         << "Failed to load audio test model from: " << model_path;
 
-    model_ = result.model;
+    model_ = result.As<fl::GenAIModelInstance>();
   }
 
   static void TearDownTestSuite() {
@@ -381,7 +381,7 @@ class AudioSessionNemotronInferenceTest : public ::testing::Test {
     auto result = load_manager_->LoadModel(model_path.string(), nemotron_alias_);
     ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess)
         << "Failed to load Nemotron model from: " << model_path;
-    model_ = result.model;
+    model_ = result.As<fl::GenAIModelInstance>();
   }
 
   static void TearDownTestSuite() {
@@ -436,7 +436,7 @@ class AudioSessionParakeetInferenceTest : public AudioSessionInferenceTest {
       }
       auto result = load_manager_->LoadModel(model_path.string(), alias);
       ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess) << model_path;
-      model_ = result.model;
+      model_ = result.As<fl::GenAIModelInstance>();
       alias_ = alias;
       return;
     }

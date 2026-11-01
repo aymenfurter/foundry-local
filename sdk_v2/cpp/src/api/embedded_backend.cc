@@ -229,7 +229,7 @@ class EmbeddedManager final : public ManagerBackend {
   }
 
   bool IsModelArtifactLoaded(const std::string& model_id, const std::string& path) const override {
-    return owner_.manager.GetModelLoadManager().GetLoadedModel(model_id, path) != nullptr;
+    return owner_.manager.GetModelLoadManager().IsModelLoaded(model_id, path);
   }
 
   void UnloadModelArtifact(const std::string& model_id, const std::string& path) override {

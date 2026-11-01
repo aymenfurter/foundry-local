@@ -3,11 +3,12 @@
 #include "catalog/local_model_catalog.h"
 
 #include "exception.h"
-#include "inferencing/generative/genai_config.h"
+#include "inferencing/model_package.h"
 #include "util/file_lock.h"
 #include "util/time_utils.h"
 
 #include <foundry_local/foundry_local_c.h>
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -39,6 +40,7 @@ const std::unordered_set<std::string> kSupportedTasks = {
     "chat-completion",
     "coding",
     "embeddings",
+    "text-to-speech",
     "vision-language-chat",
 };
 
@@ -79,6 +81,13 @@ void ApplyTaskDefaults(ModelInfo& info) {
     }
     if (!info.GetPropertyStr(FOUNDRY_LOCAL_MODEL_PROP_OUTPUT_MODALITIES_STR)) {
       info.SetPropertyStr(FOUNDRY_LOCAL_MODEL_PROP_OUTPUT_MODALITIES_STR, "embeddings");
+    }
+  } else if (info.task == "text-to-speech") {
+    if (!info.GetPropertyStr(FOUNDRY_LOCAL_MODEL_PROP_INPUT_MODALITIES_STR)) {
+      info.SetPropertyStr(FOUNDRY_LOCAL_MODEL_PROP_INPUT_MODALITIES_STR, "text");
+    }
+    if (!info.GetPropertyStr(FOUNDRY_LOCAL_MODEL_PROP_OUTPUT_MODALITIES_STR)) {
+      info.SetPropertyStr(FOUNDRY_LOCAL_MODEL_PROP_OUTPUT_MODALITIES_STR, "audio");
     }
   }
 }
@@ -256,12 +265,14 @@ Model* LocalModelCatalog::RegisterModel(const std::string& model_path_value, con
   }
 
   const auto model_path = std::filesystem::absolute(supplied_path).lexically_normal();
-  const auto config_path = model_path / "genai_config.json";
-  if (!std::filesystem::is_regular_file(config_path, ec)) {
-    FL_THROW(FOUNDRY_LOCAL_ERROR_INVALID_ARGUMENT, "model_path must contain a regular genai_config.json file");
+  // Parse the manifest now so that an invalid package fails registration instead of the first load.
+  const auto package_kind = PackageKindForTask(*metadata.GetPropertyStr(FOUNDRY_LOCAL_MODEL_PROP_TASK_STR));
+  if (!std::filesystem::is_regular_file(model_path / ManifestFileName(package_kind), ec)) {
+    FL_THROW(FOUNDRY_LOCAL_ERROR_INVALID_ARGUMENT,
+             fmt::format("model_path must contain a regular {} file", ManifestFileName(package_kind)));
   }
 
-  const auto genai_config = GenAIConfig::LoadFromFile(config_path.string());
+  const auto manifest = LoadModelManifest(model_path, package_kind);
 
   ListModels();
   Registration registration;
@@ -277,7 +288,8 @@ Model* LocalModelCatalog::RegisterModel(const std::string& model_path_value, con
     }
 
     registration = {
-        ResolveMetadata(metadata, model_id, parsed_id.name, parsed_id.version, genai_config), model_path.string()};
+        ResolveMetadata(metadata, model_id, parsed_id.name, parsed_id.version, std::get_if<GenAIConfig>(&manifest)),
+        model_path.string()};
 
     registrations.push_back(registration);
     SaveRegistrations(registrations);
@@ -362,7 +374,7 @@ void LocalModelCatalog::UnregisterModel(const std::string& alias_or_model_id) {
 
 ModelInfo LocalModelCatalog::ResolveMetadata(const ModelInfo& metadata, const std::string& model_id,
                                              const std::string& name, int version,
-                                             const GenAIConfig& genai_config) const {
+                                             const GenAIConfig* genai_config) const {
   auto resolved = metadata;
   RemoveLegacyRegistrationProperties(resolved);
   RemoveCallerContextLength(resolved);
@@ -383,10 +395,10 @@ ModelInfo LocalModelCatalog::ResolveMetadata(const ModelInfo& metadata, const st
   resolved.SetPropertyStr(FOUNDRY_LOCAL_MODEL_PROP_ENTITY_TYPE_STR, "Model");
   resolved.SetPropertyStr(FOUNDRY_LOCAL_MODEL_PROP_MODEL_TYPE_STR, "ONNX");
 
-  if (genai_config.model && genai_config.model->context_length > 0) {
-    resolved.SetPropertyInt(FOUNDRY_LOCAL_MODEL_PROP_CONTEXT_LENGTH_INT, genai_config.model->context_length);
-  } else if (genai_config.search && genai_config.search->max_length > 0) {
-    resolved.SetPropertyInt(FOUNDRY_LOCAL_MODEL_PROP_CONTEXT_LENGTH_INT, genai_config.search->max_length);
+  if (genai_config && genai_config->model && genai_config->model->context_length > 0) {
+    resolved.SetPropertyInt(FOUNDRY_LOCAL_MODEL_PROP_CONTEXT_LENGTH_INT, genai_config->model->context_length);
+  } else if (genai_config && genai_config->search && genai_config->search->max_length > 0) {
+    resolved.SetPropertyInt(FOUNDRY_LOCAL_MODEL_PROP_CONTEXT_LENGTH_INT, genai_config->search->max_length);
   }
 
   const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());

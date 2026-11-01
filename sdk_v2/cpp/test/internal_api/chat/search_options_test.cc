@@ -619,7 +619,7 @@ class SearchOptionsTest : public ::testing::Test {
     ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess)
         << "Failed to load test model from: " << model_path;
 
-    model_ = result.model;
+    model_ = result.As<fl::GenAIModelInstance>();
   }
 
   static void TearDownTestSuite() {

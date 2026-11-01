@@ -182,13 +182,13 @@ TEST(ModelCapabilitiesTest, QualifiedQwenPackageResolvesBothProductionCapabiliti
   const auto result = load_manager.LoadModel(model_path.string(), kQwenModelAlias);
 
   ASSERT_EQ(result.status, fl::ModelLoadManager::LoadStatus::kSuccess);
-  ASSERT_NE(result.model, nullptr);
-  EXPECT_EQ(result.model->ModelType(), "qwen3_5_text");
-  EXPECT_TRUE(result.model->HasNativeQwenXmlToolCalls());
-  EXPECT_TRUE(result.model->HasPositionalToolResults());
-  EXPECT_TRUE(result.model->SupportsReasoningHistory());
-  EXPECT_TRUE(result.model->SupportsPreserveThinking());
-  EXPECT_TRUE(result.model->SupportsReasoningControls());
+  ASSERT_NE(result.As<fl::GenAIModelInstance>(), nullptr);
+  EXPECT_EQ(result.As<fl::GenAIModelInstance>()->ModelType(), "qwen3_5_text");
+  EXPECT_TRUE(result.As<fl::GenAIModelInstance>()->HasNativeQwenXmlToolCalls());
+  EXPECT_TRUE(result.As<fl::GenAIModelInstance>()->HasPositionalToolResults());
+  EXPECT_TRUE(result.As<fl::GenAIModelInstance>()->SupportsReasoningHistory());
+  EXPECT_TRUE(result.As<fl::GenAIModelInstance>()->SupportsPreserveThinking());
+  EXPECT_TRUE(result.As<fl::GenAIModelInstance>()->SupportsReasoningControls());
   EXPECT_TRUE(load_manager.UnloadModel(kQwenModelAlias));
 }
 

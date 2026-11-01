@@ -195,7 +195,7 @@ class DynamicEngineChatTest : public ::testing::Test {
 
     const auto result = load_manager_->LoadModel(model_path.string(), kDynamicEngineModelId);
     ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess);
-    model_ = result.model;
+    model_ = result.As<fl::GenAIModelInstance>();
     ASSERT_EQ(model_->GetGenAIConfig().GetChatBackendKind(), ChatBackendKind::kEngine);
     ASSERT_NE(model_->GetChatEngine(), nullptr);
     ASSERT_EQ(model_->GetChatEngine()->MaxRequestLength(), 1024u);
@@ -1110,11 +1110,12 @@ TEST_F(DynamicEngineChatTest, UnloadsAfterSessionsClose) {
   ASSERT_EQ(result.status, ModelLoadManager::LoadStatus::kSuccess);
 
   {
-    ChatSession session(CatalogModel(), *result.model, *logger_, telemetry_);
+    ChatSession session(CatalogModel(), *result.As<fl::GenAIModelInstance>(), *logger_, telemetry_);
     auto request = MakeRequest("Reply OK.");
     Response response;
     session.ProcessRequest(request, response);
-    EXPECT_EQ(AssistantText(response), ReferenceText(EncodeUserPrompt("Reply OK.", *result.model)));
+    EXPECT_EQ(AssistantText(response),
+              ReferenceText(EncodeUserPrompt("Reply OK.", *result.As<fl::GenAIModelInstance>())));
   }
 
   EXPECT_TRUE(load_manager.UnloadModel(kUnloadModelId));

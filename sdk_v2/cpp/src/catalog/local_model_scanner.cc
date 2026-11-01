@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 #include "catalog/local_model_scanner.h"
 
+#include "inferencing/model_package.h"
+
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
@@ -15,7 +17,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-const char* kGenAIConfigFileName = "genai_config.json";
 const char* kDownloadSignalFileName = "download.tmp";
 const char* kInferenceModelFileName = "inference_model.json";
 
@@ -45,9 +46,10 @@ std::string ReadModelNameFromInferenceModel(const fs::path& dir) {
 }
 
 /// Check if a directory is a valid cached model directory.
-/// Must have genai_config.json, no download.tmp, and an inference_model.json with a Name.
+/// Must have a model package manifest (genai_config.json or tts_config.json), no download.tmp, and an
+/// inference_model.json with a Name.
 bool IsValidModelDirectory(const fs::path& dir) {
-  if (!fs::exists(dir / kGenAIConfigFileName)) {
+  if (!IsModelPackageDirectory(dir)) {
     return false;
   }
 

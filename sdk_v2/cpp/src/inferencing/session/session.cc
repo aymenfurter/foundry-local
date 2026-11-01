@@ -6,6 +6,8 @@
 #include "inferencing/generative/audio/audio_session.h"
 #include "inferencing/generative/chat/chat_session.h"
 #include "inferencing/generative/embeddings/embeddings_session.h"
+#include "inferencing/generative/speech_synthesis/speech_synthesis_model_instance.h"
+#include "inferencing/generative/speech_synthesis/speech_synthesis_session.h"
 #include "inferencing/model_load_manager.h"
 #include "inferencing/session/session_manager.h"
 #include "items/message_item.h"
@@ -106,20 +108,32 @@ std::unique_ptr<Session> Session::Create(const fl::Model& model) {
     tracker.SetModelId(model.Id());
 
     const auto& info = model.Info();
+    if (loaded->Kind() != PackageKindForTask(info.task)) {
+      FL_LOG_AND_THROW(logger, FOUNDRY_LOCAL_ERROR_INVALID_ARGUMENT, "model task '", info.task, "' needs a ",
+                       ManifestFileName(PackageKindForTask(info.task)), " package: ", model.Id());
+    }
+
+    if (auto* speech = loaded->As<SpeechSynthesisModelInstance>()) {
+      auto session = std::make_unique<SpeechSynthesisSession>(model, *speech, logger, telemetry);
+      tracker.SetStatus(ActionStatus::kSuccess);
+      return session;
+    }
+
+    auto* genai = loaded->As<GenAIModelInstance>();
     if (info.task == "chat-completion" || info.task == "coding" || info.task == "vision-language-chat") {
-      auto session = std::make_unique<ChatSession>(model, *loaded, logger, telemetry);
+      auto session = std::make_unique<ChatSession>(model, *genai, logger, telemetry);
       tracker.SetStatus(ActionStatus::kSuccess);
       return session;
     }
 
     if (info.task == "automatic-speech-recognition") {
-      auto session = std::make_unique<AudioSession>(model, *loaded, logger, telemetry);
+      auto session = std::make_unique<AudioSession>(model, *genai, logger, telemetry);
       tracker.SetStatus(ActionStatus::kSuccess);
       return session;
     }
 
     if (info.task == "embeddings") {
-      auto session = std::make_unique<EmbeddingsSession>(model, *loaded, logger, telemetry);
+      auto session = std::make_unique<EmbeddingsSession>(model, *genai, logger, telemetry);
       tracker.SetStatus(ActionStatus::kSuccess);
       return session;
     }

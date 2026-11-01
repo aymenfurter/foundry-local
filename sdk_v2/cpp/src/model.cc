@@ -5,6 +5,7 @@
 #include "download/download_manager.h"
 #include "exception.h"
 #include "inferencing/model_load_manager.h"
+#include "inferencing/model_package.h"
 #include "items/item.h"
 #include "items/text_item.h"
 #include "util/path_safety.h"
@@ -414,8 +415,7 @@ bool Model::IsCached() const {
 
   if (external_registration_) {
     std::error_code ec;
-    return std::filesystem::is_directory(local_path_, ec) &&
-           std::filesystem::is_regular_file(std::filesystem::path(local_path_) / "genai_config.json", ec);
+    return std::filesystem::is_directory(local_path_, ec) && IsModelPackageDirectory(local_path_);
   }
 
   return active_ && cached_;
@@ -433,7 +433,7 @@ bool Model::IsLoaded() const {
   // ModelLoadManager owns the authoritative loaded-instance map. The pointer is set at
   // construction and never reassigned, so querying it here stays in sync with paths that
   // bypass Model::Load/Unload (e.g., Manager::Shutdown -> ModelLoadManager::UnloadAll).
-  return model_load_manager_->GetLoadedModel(Info().model_id, LocalPathSnapshot()) != nullptr;
+  return model_load_manager_->IsModelLoaded(Info().model_id, LocalPathSnapshot());
 }
 
 // ---------------------------------------------------------------------------
@@ -816,6 +816,26 @@ const StaticIOCache& AutomaticSpeechRecognitionIO() {
   return cache;
 }
 
+const StaticIOCache& TextToSpeechIO() {
+  static const StaticIOCache cache = [] {
+    StaticIOCache c;
+    c.input_items.push_back(Item::Create(FOUNDRY_LOCAL_ITEM_TEXT));
+    c.output_items.push_back(Item::Create(FOUNDRY_LOCAL_ITEM_AUDIO));
+
+    for (const auto& item : c.input_items) {
+      c.input_ptrs.push_back(item.get());
+    }
+
+    for (const auto& item : c.output_items) {
+      c.output_ptrs.push_back(item.get());
+    }
+
+    return c;
+  }();
+
+  return cache;
+}
+
 Model::IOInfo IOInfoFromCache(const StaticIOCache& cache) {
   return {cache.input_ptrs.data(), cache.input_ptrs.size(),
           cache.output_ptrs.data(), cache.output_ptrs.size()};
@@ -840,6 +860,10 @@ Model::IOInfo Model::GetInputOutputInfo() const {
 
   if (task == "automatic-speech-recognition") {
     return IOInfoFromCache(AutomaticSpeechRecognitionIO());
+  }
+
+  if (task == "text-to-speech") {
+    return IOInfoFromCache(TextToSpeechIO());
   }
 
   FL_THROW(FOUNDRY_LOCAL_ERROR_NOT_IMPLEMENTED,

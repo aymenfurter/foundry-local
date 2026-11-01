@@ -236,6 +236,13 @@ set(FOUNDRY_LOCAL_SOURCES
     src/inferencing/generative/audio/onnx_audio_generator.cc
     src/inferencing/generative/audio/pcm_utils.cc
     src/inferencing/generative/embeddings/embeddings_session.cc
+    src/inferencing/generative/speech_synthesis/dpm_solver.cc
+    src/inferencing/generative/speech_synthesis/speech_synthesis_config.cc
+    src/inferencing/generative/speech_synthesis/speech_synthesis_model_instance.cc
+    src/inferencing/generative/speech_synthesis/speech_synthesis_session.cc
+    src/inferencing/generative/speech_synthesis/speech_text.cc
+    src/inferencing/generative/speech_synthesis/voice_preset.cc
+    src/inferencing/model_package.cc
     src/inferencing/generative/chat/chat_generator.cc
     src/inferencing/session/session.cc
     src/inferencing/session/request.cc
@@ -304,11 +311,13 @@ set(FOUNDRY_LOCAL_SOURCES
     src/telemetry/telemetry_metadata.cc
     src/utils.cc
     src/util/file_lock.cc
+    src/util/file_utils.cc
     src/http/http_download.cc
     src/util/path_safety.cc
     src/util/region_fallback.cc
     src/util/sha256.cc
     src/util/time_utils.cc
+    src/util/utf8.cc
     src/util/zip_extract.cc
     ${FOUNDRY_LOCAL_PLATFORM_SOURCES}
     ${FOUNDRY_LOCAL_INTERNAL_HEADERS}
